@@ -350,8 +350,8 @@ local function drawBottomBar()
     local s = save()
     UI.rect(0, 640, 1280, 80, UI.col.bg2)
     UI.rect(0, 640, 1280, 1, UI.col.line)
-    UI.text("最高波次 " .. tostring(s.best_wave or 0) .. " / 50", 24, 656, 16, UI.col.text)
-    UI.text("累计热度 " .. UI.commaNum(s.total_heat or 0), 24, 680, 16, UI.col.gold)
+    UI.text("本轮纪录 " .. tostring(s.best_wave or 0) .. " / 50", 24, 656, 16, UI.col.text)
+    UI.text("历史最高 " .. tostring(s.peak_wave or s.best_wave or 0) .. " 波", 24, 680, 16, UI.col.dim)
     UI.text(
         "换马甲 " .. tostring(s.chapters or 0) .. " 次 · 影响力 " .. UI.comma(s.influence or 0),
         280,

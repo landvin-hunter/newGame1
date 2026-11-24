@@ -376,6 +376,8 @@ local function defaultSave(slot, nick, platform)
         nick = nick or "键盘侠",
         platform = platform or 1,
         best_wave = 0,
+        -- 历史最高波次：换马甲只重置 best_wave，peak_wave 用来决定天赋树的可见范围
+        peak_wave = 0,
         heat = 0,
         total_heat = 0,
         influence = 0,
@@ -429,6 +431,8 @@ local function sanitize(t)
             t.stats[k] = v
         end
     end
+    -- 老存档没有 peak_wave：用当前纪录兜底
+    t.peak_wave = math.max(t.peak_wave or 0, t.best_wave or 0, t.stats.best_wave or 0)
     t.last_run = t.last_run or nil
     return t
 end

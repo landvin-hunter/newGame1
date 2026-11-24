@@ -59,13 +59,20 @@ function Talent.level(talents, id)
     return (talents and talents[id]) or 0
 end
 
+local function reachedWave(save)
+    return math.max(save.peak_wave or 0, save.best_wave or 0)
+end
+
 function Talent.isVisible(save, id)
     local n = Talent.nodes[id]
     if not n then
         return false
     end
-    -- 「起始可点」的节点在还没打过任何一波时也要可见
-    return (save.best_wave or 0) >= (n.first_wave or 1) or (n.first_wave or 1) <= 1
+    -- 已点过的节点永远可见；「起始可点」的节点一开始就可见
+    if Talent.level(save.talents, id) > 0 then
+        return true
+    end
+    return reachedWave(save) >= (n.first_wave or 1) or (n.first_wave or 1) <= 1
 end
 
 function Talent.branchPoints(talents, branch)
@@ -151,7 +158,7 @@ function Talent.check(save, id)
         return false, "技能点不足（需 " .. n.cost .. "）"
     end
     if n.req then
-        if n.req.wave and n.req.wave > 0 and (save.best_wave or 0) < n.req.wave then
+        if n.req.wave and n.req.wave > 0 and reachedWave(save) < n.req.wave then
             return false, "需通过第 " .. n.req.wave .. " 波"
         end
         if n.req.rebirth and n.req.rebirth > 0 and (save.chapters or 0) < n.req.rebirth then

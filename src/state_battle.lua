@@ -1608,6 +1608,9 @@ local function finishWave()
         api.activeSave.best_wave = B.wave
         api.activeSave.stats.best_wave = B.wave
     end
+    if B.wave > (api.activeSave.peak_wave or 0) then
+        api.activeSave.peak_wave = B.wave
+    end
 
     -- 精神胜利：每波结束回血
     if B.eff.heal_wave > 0 then
@@ -1644,6 +1647,7 @@ function B.finishRun(victory)
     save.total_heat = (save.total_heat or 0) + run.heat
     save.heat = run.heat
     save.best_wave = math.max(save.best_wave or 0, run.waves)
+    save.peak_wave = math.max(save.peak_wave or 0, save.best_wave)
     save.stats.best_wave = save.best_wave
     save.stats.runs = (save.stats.runs or 0) + 1
     save.stats.max_combo = math.max(save.stats.max_combo or 0, Typing.maxCombo)
