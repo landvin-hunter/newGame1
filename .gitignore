@@ -1,0 +1,9 @@
+# 运行时生成的存档不进版本库
+save/
+save.bak
+*.tmp
+# 临时占位大文件
+assets/_temp/*.ttf
+# 系统垃圾
+.DS_Store
+Thumbs.db
