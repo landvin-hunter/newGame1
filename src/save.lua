@@ -8,27 +8,170 @@ local Save = {}
 local SAVE_VERSION = 1
 local MAX_SLOTS = 6
 
--- ---------------------------------------------------------------- Win32 文件系统
+-- ---------------------------------------------------------------- 文件系统
+-- Windows 的 ANSI 文件 API 遇到中文路径会直接失败（发布目录常带中文），
+-- 所以路径统一转 UTF-16 走宽字符 API；没有 FFI 时退回 io/os。
 
 local ffi = nil
 pcall(function()
     ffi = require("ffi")
 end)
 
-local CreateDirectoryA = nil
+local win = nil
 
 if ffi then
     local ok = pcall(ffi.cdef, [[
-        int CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
+        typedef struct _FILE FILE;
+        FILE* _wfopen(const uint16_t* filename, const uint16_t* mode);
+        int fclose(FILE* stream);
+        size_t fread(void* ptr, size_t size, size_t count, FILE* stream);
+        size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream);
+        int _wremove(const uint16_t* path);
+        int _wrename(const uint16_t* oldname, const uint16_t* newname);
+        int CreateDirectoryW(const uint16_t* lpPathName, void* lpSecurityAttributes);
+        int GetFileAttributesW(const uint16_t* lpFileName);
     ]])
     if ok then
-        CreateDirectoryA = ffi.C.CreateDirectoryA
+        local okLib, lib = pcall(ffi.load, "msvcrt")
+        win = {
+            lib = okLib and lib or ffi.C,
+            api = ffi.C,
+        }
     end
 end
 
+local u16cache = {}
+local u16cacheN = 0
+
+local function u16(str)
+    local cached = u16cache[str]
+    if cached then
+        return cached
+    end
+    local out = {}
+    local i = 1
+    while i <= #str do
+        local b = str:byte(i)
+        local cp, len
+        if b < 0x80 then
+            cp, len = b, 1
+        elseif b < 0xE0 then
+            cp, len = (b - 0xC0) * 0x40 + (str:byte(i + 1) - 0x80), 2
+        elseif b < 0xF0 then
+            cp, len = (b - 0xE0) * 0x1000 + (str:byte(i + 1) - 0x80) * 0x40 + (str:byte(i + 2) - 0x80), 3
+        else
+            cp, len = (b - 0xF0) * 0x40000
+                + (str:byte(i + 1) - 0x80) * 0x1000
+                + (str:byte(i + 2) - 0x80) * 0x40
+                + (str:byte(i + 3) - 0x80), 4
+        end
+        if cp >= 0x10000 then
+            cp = cp - 0x10000
+            out[#out + 1] = 0xD800 + math.floor(cp / 0x400)
+            out[#out + 1] = 0xDC00 + cp % 0x400
+        else
+            out[#out + 1] = cp
+        end
+        i = i + len
+    end
+    out[#out + 1] = 0
+    local buf = ffi.new("uint16_t[?]", #out)
+    for k = 1, #out do
+        buf[k - 1] = out[k]
+    end
+    u16cache[str] = buf
+    u16cacheN = u16cacheN + 1
+    if u16cacheN > 128 then
+        u16cache = {}
+        u16cacheN = 0
+    end
+    return buf
+end
+
+local fs = {}
+
+function fs.read(path)
+    if win then
+        local fp = win.lib._wfopen(u16(path), u16("rb"))
+        if fp == nil then
+            return nil
+        end
+        local chunks = {}
+        local buf = ffi.new("char[8192]")
+        while true do
+            local n = tonumber(win.lib.fread(buf, 1, 8192, fp))
+            if n == 0 then
+                break
+            end
+            chunks[#chunks + 1] = ffi.string(buf, n)
+        end
+        win.lib.fclose(fp)
+        if #chunks == 0 then
+            return ""
+        end
+        return table.concat(chunks)
+    end
+    local f = io.open(path, "rb")
+    if not f then
+        return nil
+    end
+    local data = f:read("*a")
+    f:close()
+    return data
+end
+
+function fs.write(path, text)
+    if win then
+        local fp = win.lib._wfopen(u16(path), u16("wb"))
+        if fp == nil then
+            return false
+        end
+        local wrote = 0
+        if #text > 0 then
+            wrote = tonumber(win.lib.fwrite(ffi.cast("const char*", text), 1, #text, fp))
+        end
+        win.lib.fclose(fp)
+        return wrote == #text
+    end
+    local f = io.open(path, "wb")
+    if not f then
+        return false
+    end
+    f:write(text)
+    f:flush()
+    f:close()
+    return true
+end
+
+function fs.exists(path)
+    if win then
+        return win.api.GetFileAttributesW(u16(path)) ~= -1
+    end
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
+function fs.remove(path)
+    if win then
+        return win.lib._wremove(u16(path)) == 0
+    end
+    return os.remove(path) ~= nil
+end
+
+function fs.rename(from, to)
+    if win then
+        return win.lib._wrename(u16(from), u16(to)) == 0
+    end
+    return os.rename(from, to) ~= nil
+end
+
 local function mkdir(path)
-    if CreateDirectoryA then
-        return CreateDirectoryA(path, nil) ~= 0
+    if win then
+        return win.api.CreateDirectoryW(u16(path), nil) ~= 0
     end
     os.execute('cmd /c mkdir "' .. path .. '" >nul 2>nul')
     return true
@@ -43,22 +186,11 @@ local function mkdirs(path)
 end
 
 local function readFile(path)
-    local f = io.open(path, "rb")
-    if not f then
-        return nil
-    end
-    local data = f:read("*a")
-    f:close()
-    return data
+    return fs.read(path)
 end
 
 local function fileExists(path)
-    local f = io.open(path, "rb")
-    if f then
-        f:close()
-        return true
-    end
-    return false
+    return fs.exists(path)
 end
 
 -- ---------------------------------------------------------------- JSON
@@ -458,10 +590,8 @@ function Save.init()
     mkdirs(Save.base)
     -- 目录不可写的兜底：改用 love.filesystem 的存档目录，至少不崩
     local probe = Save.base .. "/.probe"
-    local f = io.open(probe, "wb")
-    if f then
-        f:close()
-        os.remove(probe)
+    if fs.write(probe, "probe") then
+        fs.remove(probe)
     else
         Save.using_fallback = true
         print("[save] 游戏目录不可写，存档回退到 love.filesystem 存档目录")
@@ -483,14 +613,7 @@ local function slotPath(slot, name)
 end
 
 local function writeRaw(path, text)
-    local f = io.open(path, "wb")
-    if not f then
-        return false
-    end
-    f:write(text)
-    f:flush()
-    f:close()
-    return true
+    return fs.write(path, text)
 end
 
 local function readRaw(path)
@@ -667,11 +790,11 @@ function Save.write(data)
     if old then
         writeRaw(bak, old)
     end
-    os.remove(final)
-    local ok, err = os.rename(tmp, final)
+    fs.remove(final)
+    local ok = fs.rename(tmp, final)
     if not ok then
         -- 极端情况：写不回去时至少留下 tmp 与 bak
-        print("[save] rename 失败: " .. tostring(err))
+        print("[save] rename 失败: " .. final)
         return false
     end
     return true
@@ -682,7 +805,7 @@ function Save.deleteSlot(slot)
         pcall(love.filesystem.remove, slot .. "/save.json")
     else
         for _, name in ipairs({ "save.json", "save.bak", "save.tmp" }) do
-            os.remove(slotPath(slot, name))
+            fs.remove(slotPath(slot, name))
         end
     end
     local list = Save.slots()

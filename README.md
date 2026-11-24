@@ -101,6 +101,22 @@ python tools/gen_data.py
 - 手动参与度：波 5 起负载 4~5 字母/秒，纯手动开始掉血；自动系点出来后接管
 - 波 20~30 实际负载 78~135 字母/秒，同屏 40、飞行 6.5s，难度转向血量倍率与弹幕层数
 
+## 打包
+
+```
+python tools/pack_exe.py
+```
+
+产物在 `E:\MyGame\newGame1-build\`：
+
+- `键盘侠\`：`键盘侠.exe` + LÖVE 运行库（love.dll / SDL2.dll / OpenAL32.dll 等）+ `玩法说明.txt`
+- `keyboard_hero.love`：纯游戏包，可直接 `love.exe keyboard_hero.love` 运行
+- `键盘侠_v0.5_win64.zip`：发布包（解压即玩）
+
+融合 exe 仍然是“exe + 同目录 DLL”，不是真正的单文件；存档写在 exe 同级的 `save\`，
+中文路径也能正常读写（文件 API 走 UTF-16，不依赖系统代码页）。
+exe 未做数字签名，首次运行 Windows 可能弹 SmartScreen 提示，选“仍要运行”即可。
+
 ## 已知取舍 / 待补
 
 - `5.音乐设计.txt` 的分层切换细节尚未逐条实现：当前按波次 1~9 / 10~29 / 30+ 切 L1/L2/L3，
